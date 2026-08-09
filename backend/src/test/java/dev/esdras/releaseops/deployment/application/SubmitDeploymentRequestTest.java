@@ -3,7 +3,8 @@ package dev.esdras.releaseops.deployment.application;
 import dev.esdras.releaseops.deployment.domain.DeploymentRequest;
 import dev.esdras.releaseops.deployment.domain.DeploymentStatus;
 import dev.esdras.releaseops.deployment.domain.DeploymentRepository;
-import dev.esdras.releaseops.deployment.application.exception.DeploymentNotFoundException;
+import dev.esdras.releaseops.deployment.application.exception.DeploymentRequestNotFoundException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
 
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +21,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class SubmitDeploymentTest {
+class SubmitDeploymentRequestTest {
 
     private static final Instant FIXED_INSTANT = Instant.parse("2026-08-01T10:05:00Z");
     private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_INSTANT, java.time.ZoneOffset.UTC);
@@ -45,10 +46,11 @@ class SubmitDeploymentTest {
         when(repository.findById(deploymentId))
                 .thenReturn(Optional.of(deployment));
 
-        SubmitDeployment useCase = new SubmitDeployment(repository, FIXED_CLOCK);
+        SubmitDeploymentRequest useCase = new SubmitDeploymentRequest(repository, FIXED_CLOCK);
 
-        useCase.execute(deploymentId);
+        DeploymentRequest result = useCase.execute(deploymentId);
 
+        assertThat(result).isSameAs(deployment);
         assertThat(deployment.getStatus())
                 .isEqualTo(DeploymentStatus.PENDING_APPROVAL);
 
@@ -65,11 +67,28 @@ class SubmitDeploymentTest {
         DeploymentRepository repository = mock(DeploymentRepository.class);
         when(repository.findById(deploymentId)).thenReturn(Optional.empty());
 
-        SubmitDeployment useCase = new SubmitDeployment(repository, FIXED_CLOCK);
+        SubmitDeploymentRequest useCase = new SubmitDeploymentRequest(repository, FIXED_CLOCK);
 
         assertThatThrownBy(() -> useCase.execute(deploymentId))
-                .isInstanceOf(DeploymentNotFoundException.class)
-                .hasMessage("Deployment not found: " + deploymentId);
+                .isInstanceOf(DeploymentRequestNotFoundException.class)
+                .hasMessage("Deployment request not found: " + deploymentId);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void shouldPropagateInvalidStateAndNotSave() {
+        UUID deploymentId = UUID.randomUUID();
+        DeploymentRequest deployment = DeploymentRequest.create(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "Release API", "Deploy the API release", "Restore the previous release", 1,
+                Instant.parse("2026-08-01T10:00:00Z")
+        );
+        deployment.submit(FIXED_INSTANT);
+        DeploymentRepository repository = mock(DeploymentRepository.class);
+        when(repository.findById(deploymentId)).thenReturn(Optional.of(deployment));
+
+        assertThatThrownBy(() -> new SubmitDeploymentRequest(repository, FIXED_CLOCK).execute(deploymentId))
+                .isInstanceOf(InvalidDeploymentTransitionException.class);
         verify(repository, never()).save(any());
     }
 }
