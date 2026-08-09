@@ -10,6 +10,7 @@ import java.util.UUID;
 
 public class DeploymentRequest {
 
+    private final UUID id;
     private final UUID requesterId;
     private final UUID releaseId;
     private final UUID environmentId;
@@ -27,6 +28,7 @@ public class DeploymentRequest {
             throw new InvalidRequiredApprovalsException("Required approvals must be greater than zero");
         }
 
+        this.id = UUID.randomUUID();
         this.requesterId = requesterId;
         this.releaseId = releaseId;
         this.environmentId = environmentId;
