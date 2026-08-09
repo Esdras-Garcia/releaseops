@@ -1,88 +1,280 @@
 package dev.esdras.releaseops.deployment.domain;
 
+import dev.esdras.releaseops.deployment.domain.exception.DuplicateDecisionException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidCancellationReasonException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDecisionException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentRequestException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
-import dev.esdras.releaseops.deployment.domain.exception.DuplicateApprovalException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidRejectionReasonException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidRequiredApprovalsException;
 import dev.esdras.releaseops.deployment.domain.exception.SelfApprovalNotAllowedException;
 
-import java.util.Set;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 public class DeploymentRequest {
+
+    private static final int MAX_TITLE_LENGTH = 120;
+    private static final int MAX_TEXT_LENGTH = 5_000;
 
     private final UUID id;
     private final UUID requesterId;
     private final UUID releaseId;
     private final UUID environmentId;
     private final int requiredApprovals;
-    private final Set<UUID> approverIds;
+    private final Instant createdAt;
+    private final List<ReviewRound> reviewRounds;
+    private String title;
+    private String description;
+    private String rollbackPlan;
     private DeploymentStatus status;
+    private String cancellationReason;
+    private Instant canceledAt;
 
     private DeploymentRequest(
-        UUID requesterId,
-        UUID releaseId,
-        UUID environmentId,
-        int requiredApprovals
+            UUID id,
+            UUID requesterId,
+            UUID releaseId,
+            UUID environmentId,
+            String title,
+            String description,
+            String rollbackPlan,
+            int requiredApprovals,
+            Instant createdAt
     ) {
-        if (requiredApprovals <= 0) {
-            throw new InvalidRequiredApprovalsException("Required approvals must be greater than zero");
-        }
+        validateRequiredIds(requesterId, releaseId, environmentId, createdAt);
+        validateRequiredApprovals(requiredApprovals);
+        validateText("title", title, MAX_TITLE_LENGTH);
+        validateText("description", description, MAX_TEXT_LENGTH);
+        validateText("rollback plan", rollbackPlan, MAX_TEXT_LENGTH);
 
-        this.id = UUID.randomUUID();
+        this.id = Objects.requireNonNull(id, "id must not be null");
         this.requesterId = requesterId;
         this.releaseId = releaseId;
         this.environmentId = environmentId;
+        this.title = title;
+        this.description = description;
+        this.rollbackPlan = rollbackPlan;
         this.requiredApprovals = requiredApprovals;
-        this.approverIds = new java.util.HashSet<>();
+        this.createdAt = createdAt;
+        this.reviewRounds = new ArrayList<>();
         this.status = DeploymentStatus.DRAFT;
     }
 
     public static DeploymentRequest create(
-        UUID requesterId,
-        UUID releaseId,
-        UUID environmentId,
-        int requiredApprovals
+            UUID requesterId,
+            UUID releaseId,
+            UUID environmentId,
+            String title,
+            String description,
+            String rollbackPlan,
+            int requiredApprovals,
+            Instant createdAt
     ) {
         return new DeploymentRequest(
+                UUID.randomUUID(),
                 requesterId,
                 releaseId,
                 environmentId,
-                requiredApprovals
+                title,
+                description,
+                rollbackPlan,
+                requiredApprovals,
+                createdAt
         );
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public UUID getRequesterId() {
+        return requesterId;
+    }
+
+    public UUID getReleaseId() {
+        return releaseId;
+    }
+
+    public UUID getEnvironmentId() {
+        return environmentId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public String getRollbackPlan() {
+        return rollbackPlan;
+    }
+
+    public int getRequiredApprovals() {
+        return requiredApprovals;
     }
 
     public DeploymentStatus getStatus() {
         return status;
     }
 
-    public void submit() {
-
-        if (status != DeploymentStatus.DRAFT) {
-            throw new InvalidDeploymentTransitionException("Only draft deployments can be submitted");
-        }
-
-        this.status = DeploymentStatus.PENDING_APPROVAL;
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 
-    public void approve(UUID approverId) {
-        if (status != DeploymentStatus.PENDING_APPROVAL) {
-            throw new InvalidDeploymentTransitionException("Only pending deployments can be approved");
+    public List<ReviewRound> getReviewRounds() {
+        return List.copyOf(reviewRounds);
+    }
+
+    public String getCancellationReason() {
+        return cancellationReason;
+    }
+
+    public Instant getCanceledAt() {
+        return canceledAt;
+    }
+
+    public void edit(String title, String description, String rollbackPlan) {
+        ensureStatus(DeploymentStatus.DRAFT, "Only draft deployments can be edited");
+        validateText("title", title, MAX_TITLE_LENGTH);
+        validateText("description", description, MAX_TEXT_LENGTH);
+        validateText("rollback plan", rollbackPlan, MAX_TEXT_LENGTH);
+
+        this.title = title;
+        this.description = description;
+        this.rollbackPlan = rollbackPlan;
+    }
+
+    public void submit(Instant submittedAt) {
+        ensureStatus(DeploymentStatus.DRAFT, "Only draft deployments can be submitted");
+        if (submittedAt == null) {
+            throw new InvalidDecisionException("Submitted at must not be null");
         }
 
-        if (approverId.equals(requesterId)) {
-            throw new SelfApprovalNotAllowedException("Requester cannot approve their own deployment");
+        reviewRounds.add(new ReviewRound(reviewRounds.size() + 1, submittedAt));
+        status = DeploymentStatus.PENDING_APPROVAL;
+    }
+
+    public void approve(UUID reviewerId, String comment, Instant decidedAt) {
+        ensurePendingApproval();
+        validateDecisionReviewer(reviewerId);
+        validateDecisionTime(decidedAt);
+        if (comment != null && comment.isBlank()) {
+            throw new InvalidDecisionException("Approval comment must not contain only whitespace");
         }
 
-        if (!approverIds.add(approverId)) {
-            throw new DuplicateApprovalException("User has already approved this deployment");
-        }
+        ReviewRound currentRound = currentRound();
+        ensureNoPreviousDecision(currentRound, reviewerId);
+        currentRound.addDecision(new ApprovalDecision(
+                reviewerId, ApprovalDecisionType.APPROVED, comment, decidedAt
+        ));
 
-        if (approverIds.size() >= requiredApprovals) {
+        if (currentRound.approvedDecisionCount() >= requiredApprovals) {
             status = DeploymentStatus.APPROVED;
         }
     }
 
-    public Set<UUID> getApproverIds() {
-        return Set.copyOf(approverIds);
+    public void reject(UUID reviewerId, String reason, Instant decidedAt) {
+        ensurePendingApproval();
+        validateDecisionReviewer(reviewerId);
+        validateDecisionTime(decidedAt);
+        if (reason == null || reason.isBlank()) {
+            throw new InvalidRejectionReasonException("Rejection reason must not be empty");
+        }
+
+        ReviewRound currentRound = currentRound();
+        ensureNoPreviousDecision(currentRound, reviewerId);
+        currentRound.addDecision(new ApprovalDecision(
+                reviewerId, ApprovalDecisionType.REJECTED, reason, decidedAt
+        ));
+        status = DeploymentStatus.DRAFT;
+    }
+
+    public void cancel(String reason, Instant canceledAt) {
+        if (status == DeploymentStatus.CANCELED) {
+            throw new InvalidDeploymentTransitionException("Canceled deployments cannot be canceled again");
+        }
+        if (status != DeploymentStatus.DRAFT
+                && status != DeploymentStatus.PENDING_APPROVAL
+                && status != DeploymentStatus.APPROVED) {
+            throw new InvalidDeploymentTransitionException("Deployment cannot be canceled from its current state");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new InvalidCancellationReasonException("Cancellation reason must not be empty");
+        }
+        if (canceledAt == null) {
+            throw new InvalidDecisionException("Canceled at must not be null");
+        }
+
+        this.cancellationReason = reason;
+        this.canceledAt = canceledAt;
+        this.status = DeploymentStatus.CANCELED;
+    }
+
+    private void ensurePendingApproval() {
+        ensureStatus(DeploymentStatus.PENDING_APPROVAL, "Only pending deployments can receive decisions");
+    }
+
+    private void ensureStatus(DeploymentStatus expectedStatus, String message) {
+        if (status != expectedStatus) {
+            throw new InvalidDeploymentTransitionException(message);
+        }
+    }
+
+    private ReviewRound currentRound() {
+        return reviewRounds.get(reviewRounds.size() - 1);
+    }
+
+    private void ensureNoPreviousDecision(ReviewRound round, UUID reviewerId) {
+        if (round.hasDecisionBy(reviewerId)) {
+            throw new DuplicateDecisionException("Reviewer has already decided in this review round");
+        }
+    }
+
+    private void validateDecisionReviewer(UUID reviewerId) {
+        if (reviewerId == null) {
+            throw new InvalidDecisionException("Reviewer ID must not be null");
+        }
+        if (reviewerId.equals(requesterId)) {
+            throw new SelfApprovalNotAllowedException("Requester cannot decide on their own deployment");
+        }
+    }
+
+    private void validateDecisionTime(Instant decidedAt) {
+        if (decidedAt == null) {
+            throw new InvalidDecisionException("Decision time must not be null");
+        }
+    }
+
+    private static void validateRequiredIds(
+            UUID requesterId, UUID releaseId, UUID environmentId, Instant createdAt
+    ) {
+        if (requesterId == null || releaseId == null || environmentId == null || createdAt == null) {
+            throw new InvalidDeploymentRequestException(
+                    "Requester ID, release ID, environment ID and created at are required"
+            );
+        }
+    }
+
+    private static void validateRequiredApprovals(int requiredApprovals) {
+        if (requiredApprovals <= 0) {
+            throw new InvalidRequiredApprovalsException("Required approvals must be greater than zero");
+        }
+    }
+
+    private static void validateText(String fieldName, String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            throw new InvalidDeploymentRequestException(fieldName + " must not be empty");
+        }
+        if (value.length() > maxLength) {
+            throw new InvalidDeploymentRequestException(
+                    fieldName + " must not exceed " + maxLength + " characters"
+            );
+        }
     }
 }

@@ -4,6 +4,7 @@ import dev.esdras.releaseops.deployment.domain.DeploymentRepository;
 import dev.esdras.releaseops.deployment.domain.DeploymentRequest;
 import dev.esdras.releaseops.deployment.application.exception.DeploymentNotFoundException;
 
+import java.time.Instant;
 import java.util.UUID;
 
 public class SubmitDeployment {
@@ -21,7 +22,7 @@ public class SubmitDeployment {
                         "Deployment not found: " + deploymentId
                 ));
 
-        deployment.submit();
+        deployment.submit(Instant.now());
 
         repository.save(deployment);
     }

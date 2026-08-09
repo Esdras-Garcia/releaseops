@@ -8,6 +8,7 @@ import dev.esdras.releaseops.deployment.application.exception.DeploymentNotFound
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +29,11 @@ class SubmitDeploymentTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
-                1
+                "Release API",
+                "Deploy the API release",
+                "Restore the previous release",
+                1,
+                Instant.parse("2026-08-01T10:00:00Z")
         );
 
         DeploymentRepository repository = mock(DeploymentRepository.class);
