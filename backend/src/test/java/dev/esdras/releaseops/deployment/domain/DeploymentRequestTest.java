@@ -5,6 +5,7 @@ import dev.esdras.releaseops.deployment.domain.exception.InvalidCancellationReas
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDecisionException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentRequestException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidLifecycleTimestampException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidRejectionReasonException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidRequiredApprovalsException;
 import dev.esdras.releaseops.deployment.domain.exception.SelfApprovalNotAllowedException;
@@ -148,16 +149,32 @@ class DeploymentRequestTest {
 
         assertThat(deployment.getStatus()).isEqualTo(DeploymentStatus.PENDING_APPROVAL);
         assertThat(deployment.getReviewRounds()).hasSize(1);
-        assertThat(deployment.getReviewRounds().get(0).getRoundNumber()).isEqualTo(1);
-        assertThat(deployment.getReviewRounds().get(0).getSubmittedAt()).isEqualTo(SUBMITTED_AT);
-        assertThat(deployment.getReviewRounds().get(0).getDecisions()).isEmpty();
+        assertThat(deployment.getReviewRounds().getFirst().getRoundNumber()).isEqualTo(1);
+        assertThat(deployment.getReviewRounds().getFirst().getSubmittedAt()).isEqualTo(SUBMITTED_AT);
+        assertThat(deployment.getReviewRounds().getFirst().getDecisions()).isEmpty();
     }
 
     @Test
     void shouldRejectSubmissionWithoutSubmissionTime() {
         assertThatThrownBy(() -> create().submit(null))
-                .isInstanceOf(InvalidDecisionException.class)
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
                 .hasMessage("Submitted at must not be null");
+    }
+
+    @Test
+    void shouldRejectSubmissionBeforeCreation() {
+        assertThatThrownBy(() -> create().submit(CREATED_AT.minusNanos(1)))
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
+                .hasMessage("Submitted at cannot be before created at");
+    }
+
+    @Test
+    void shouldAllowSubmissionAtCreationTime() {
+        DeploymentRequest deployment = create();
+
+        deployment.submit(CREATED_AT);
+
+        assertThat(deployment.getStatus()).isEqualTo(DeploymentStatus.PENDING_APPROVAL);
     }
 
     @Test
@@ -178,7 +195,7 @@ class DeploymentRequestTest {
 
         deployment.approve(reviewerId, "Looks good", DECIDED_AT);
 
-        ApprovalDecision decision = deployment.getReviewRounds().get(0).getDecisions().get(0);
+        ApprovalDecision decision = deployment.getReviewRounds().getFirst().getDecisions().getFirst();
         assertThat(decision.getReviewerId()).isEqualTo(reviewerId);
         assertThat(decision.getType()).isEqualTo(ApprovalDecisionType.APPROVED);
         assertThat(decision.getComment()).isEqualTo("Looks good");
@@ -198,9 +215,34 @@ class DeploymentRequestTest {
         assertThatThrownBy(() -> deployment.approve(null, null, DECIDED_AT))
                 .isInstanceOf(InvalidDecisionException.class);
         assertThatThrownBy(() -> deployment.approve(UUID.randomUUID(), null, null))
-                .isInstanceOf(InvalidDecisionException.class);
+                .isInstanceOf(InvalidLifecycleTimestampException.class);
         assertThatThrownBy(() -> deployment.approve(UUID.randomUUID(), "   ", DECIDED_AT))
                 .isInstanceOf(InvalidDecisionException.class);
+    }
+
+    @Test
+    void shouldRejectApprovalOrRejectionBeforeCurrentRoundSubmission() {
+        DeploymentRequest approval = create();
+        approval.submit(SUBMITTED_AT);
+        assertThatThrownBy(() -> approval.approve(UUID.randomUUID(), "Approved", SUBMITTED_AT.minusNanos(1)))
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
+                .hasMessage("Decision time cannot be before the current round submission");
+
+        DeploymentRequest rejection = create();
+        rejection.submit(SUBMITTED_AT);
+        assertThatThrownBy(() -> rejection.reject(UUID.randomUUID(), "Rejected", SUBMITTED_AT.minusNanos(1)))
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
+                .hasMessage("Decision time cannot be before the current round submission");
+    }
+
+    @Test
+    void shouldAllowDecisionAtCurrentRoundSubmissionTime() {
+        DeploymentRequest deployment = create();
+        deployment.submit(SUBMITTED_AT);
+
+        deployment.approve(UUID.randomUUID(), "Approved", SUBMITTED_AT);
+
+        assertThat(deployment.getStatus()).isEqualTo(DeploymentStatus.APPROVED);
     }
 
     @Test
@@ -245,7 +287,7 @@ class DeploymentRequestTest {
         deployment.reject(reviewerId, "Rollback plan is incomplete", DECIDED_AT);
 
         assertThat(deployment.getStatus()).isEqualTo(DeploymentStatus.DRAFT);
-        ApprovalDecision decision = deployment.getReviewRounds().get(0).getDecisions().get(0);
+        ApprovalDecision decision = deployment.getReviewRounds().getFirst().getDecisions().getFirst();
         assertThat(decision.getReviewerId()).isEqualTo(reviewerId);
         assertThat(decision.getType()).isEqualTo(ApprovalDecisionType.REJECTED);
         assertThat(decision.getComment()).isEqualTo("Rollback plan is incomplete");
@@ -262,7 +304,7 @@ class DeploymentRequestTest {
         assertThatThrownBy(() -> deployment.reject(UUID.randomUUID(), "   ", DECIDED_AT))
                 .isInstanceOf(InvalidRejectionReasonException.class);
         assertThatThrownBy(() -> deployment.reject(UUID.randomUUID(), "Rejected", null))
-                .isInstanceOf(InvalidDecisionException.class);
+                .isInstanceOf(InvalidLifecycleTimestampException.class);
     }
 
     @Test
@@ -335,7 +377,33 @@ class DeploymentRequestTest {
         assertThatThrownBy(() -> create().cancel("   ", CANCELED_AT))
                 .isInstanceOf(InvalidCancellationReasonException.class);
         assertThatThrownBy(() -> create().cancel("No longer needed", null))
-                .isInstanceOf(InvalidDecisionException.class);
+                .isInstanceOf(InvalidLifecycleTimestampException.class);
+    }
+
+    @Test
+    void shouldRejectCancellationBeforeTheLatestDeploymentEvent() {
+        DeploymentRequest pending = create();
+        pending.submit(SUBMITTED_AT);
+        assertThatThrownBy(() -> pending.cancel("Canceled", SUBMITTED_AT.minusNanos(1)))
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
+                .hasMessage("Canceled at cannot be before the latest deployment event");
+
+        DeploymentRequest withDecision = create(2);
+        withDecision.submit(SUBMITTED_AT);
+        withDecision.approve(UUID.randomUUID(), "Approved", DECIDED_AT);
+        assertThatThrownBy(() -> withDecision.cancel("Canceled", DECIDED_AT.minusNanos(1)))
+                .isInstanceOf(InvalidLifecycleTimestampException.class)
+                .hasMessage("Canceled at cannot be before the latest deployment event");
+    }
+
+    @Test
+    void shouldAllowCancellationAtTheLatestDeploymentEvent() {
+        DeploymentRequest deployment = create();
+        deployment.submit(SUBMITTED_AT);
+
+        deployment.cancel("Canceled", SUBMITTED_AT);
+
+        assertThat(deployment.getStatus()).isEqualTo(DeploymentStatus.CANCELED);
     }
 
     @Test
@@ -361,14 +429,14 @@ class DeploymentRequestTest {
         deployment.submit(SUBMITTED_AT);
         deployment.approve(UUID.randomUUID(), "Approved", DECIDED_AT);
         List<ReviewRound> rounds = deployment.getReviewRounds();
-        List<ApprovalDecision> decisions = rounds.get(0).getDecisions();
+        List<ApprovalDecision> decisions = rounds.getFirst().getDecisions();
 
-        assertThatThrownBy(() -> rounds.clear())
+        assertThatThrownBy(rounds::clear)
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> decisions.clear())
+        assertThatThrownBy(decisions::clear)
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(deployment.getReviewRounds()).hasSize(1);
-        assertThat(deployment.getReviewRounds().get(0).getDecisions()).hasSize(1);
+        assertThat(deployment.getReviewRounds().getFirst().getDecisions()).hasSize(1);
     }
 
     private static void assertEditRejected(DeploymentRequest deployment) {

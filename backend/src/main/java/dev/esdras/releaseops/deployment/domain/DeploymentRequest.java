@@ -5,6 +5,7 @@ import dev.esdras.releaseops.deployment.domain.exception.InvalidCancellationReas
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDecisionException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentRequestException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidLifecycleTimestampException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidRejectionReasonException;
 import dev.esdras.releaseops.deployment.domain.exception.InvalidRequiredApprovalsException;
 import dev.esdras.releaseops.deployment.domain.exception.SelfApprovalNotAllowedException;
@@ -153,7 +154,10 @@ public class DeploymentRequest {
     public void submit(Instant submittedAt) {
         ensureStatus(DeploymentStatus.DRAFT, "Only draft deployments can be submitted");
         if (submittedAt == null) {
-            throw new InvalidDecisionException("Submitted at must not be null");
+            throw new InvalidLifecycleTimestampException("Submitted at must not be null");
+        }
+        if (submittedAt.isBefore(createdAt)) {
+            throw new InvalidLifecycleTimestampException("Submitted at cannot be before created at");
         }
 
         reviewRounds.add(new ReviewRound(reviewRounds.size() + 1, submittedAt));
@@ -208,7 +212,10 @@ public class DeploymentRequest {
             throw new InvalidCancellationReasonException("Cancellation reason must not be empty");
         }
         if (canceledAt == null) {
-            throw new InvalidDecisionException("Canceled at must not be null");
+            throw new InvalidLifecycleTimestampException("Canceled at must not be null");
+        }
+        if (canceledAt.isBefore(latestEventAt())) {
+            throw new InvalidLifecycleTimestampException("Canceled at cannot be before the latest deployment event");
         }
 
         this.cancellationReason = reason;
@@ -227,7 +234,7 @@ public class DeploymentRequest {
     }
 
     private ReviewRound currentRound() {
-        return reviewRounds.get(reviewRounds.size() - 1);
+        return reviewRounds.getLast();
     }
 
     private void ensureNoPreviousDecision(ReviewRound round, UUID reviewerId) {
@@ -247,8 +254,26 @@ public class DeploymentRequest {
 
     private void validateDecisionTime(Instant decidedAt) {
         if (decidedAt == null) {
-            throw new InvalidDecisionException("Decision time must not be null");
+            throw new InvalidLifecycleTimestampException("Decision time must not be null");
         }
+        if (decidedAt.isBefore(currentRound().getSubmittedAt())) {
+            throw new InvalidLifecycleTimestampException("Decision time cannot be before the current round submission");
+        }
+    }
+
+    private Instant latestEventAt() {
+        Instant latestEvent = createdAt;
+        for (ReviewRound round : reviewRounds) {
+            if (round.getSubmittedAt().isAfter(latestEvent)) {
+                latestEvent = round.getSubmittedAt();
+            }
+            for (ApprovalDecision decision : round.getDecisions()) {
+                if (decision.getDecidedAt().isAfter(latestEvent)) {
+                    latestEvent = decision.getDecidedAt();
+                }
+            }
+        }
+        return latestEvent;
     }
 
     private static void validateRequiredIds(

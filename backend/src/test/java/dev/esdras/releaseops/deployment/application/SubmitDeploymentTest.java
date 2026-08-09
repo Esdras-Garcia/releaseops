@@ -8,6 +8,7 @@ import dev.esdras.releaseops.deployment.application.exception.DeploymentNotFound
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -20,6 +21,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SubmitDeploymentTest {
+
+    private static final Instant FIXED_INSTANT = Instant.parse("2026-08-01T10:05:00Z");
+    private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_INSTANT, java.time.ZoneOffset.UTC);
 
     @Test
     void shouldSubmitExistingDeployment() {
@@ -41,12 +45,16 @@ class SubmitDeploymentTest {
         when(repository.findById(deploymentId))
                 .thenReturn(Optional.of(deployment));
 
-        SubmitDeployment useCase = new SubmitDeployment(repository);
+        SubmitDeployment useCase = new SubmitDeployment(repository, FIXED_CLOCK);
 
         useCase.execute(deploymentId);
 
         assertThat(deployment.getStatus())
                 .isEqualTo(DeploymentStatus.PENDING_APPROVAL);
+
+        assertThat(deployment.getReviewRounds()).hasSize(1);
+        assertThat(deployment.getReviewRounds().getFirst().getSubmittedAt())
+                .isEqualTo(FIXED_INSTANT);
 
         verify(repository).save(deployment);
     }
@@ -57,7 +65,7 @@ class SubmitDeploymentTest {
         DeploymentRepository repository = mock(DeploymentRepository.class);
         when(repository.findById(deploymentId)).thenReturn(Optional.empty());
 
-        SubmitDeployment useCase = new SubmitDeployment(repository);
+        SubmitDeployment useCase = new SubmitDeployment(repository, FIXED_CLOCK);
 
         assertThatThrownBy(() -> useCase.execute(deploymentId))
                 .isInstanceOf(DeploymentNotFoundException.class)
