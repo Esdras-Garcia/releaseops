@@ -1,5 +1,6 @@
 package dev.esdras.releaseops.deployment.domain;
 
+import dev.esdras.releaseops.deployment.domain.exception.SelfApprovalNotAllowedException;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -61,5 +62,24 @@ class DeploymentRequestTest {
         assertThatThrownBy(() -> deployment.submit())
                 .isInstanceOf(InvalidDeploymentTransitionException.class)
                 .hasMessage("Only draft deployments can be submitted");
+    }
+
+    @Test
+    void shouldNotAllowRequesterToApproveOwnDeployment() {
+        UUID requesterId = UUID.randomUUID();
+        UUID releaseId = UUID.randomUUID();
+        UUID environmentId = UUID.randomUUID();
+
+        DeploymentRequest deployment = DeploymentRequest.create(
+                requesterId,
+                releaseId,
+                environmentId
+        );
+
+        deployment.submit();
+
+        assertThatThrownBy(() -> deployment.approve(requesterId))
+                .isInstanceOf(SelfApprovalNotAllowedException.class)
+                .hasMessage("Requester cannot approve their own deployment");
     }
 }
