@@ -4,7 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeploymentRequestTest {
 
@@ -21,5 +24,42 @@ class DeploymentRequestTest {
         );
 
         assertThat(deploymentRequest.getStatus()).isEqualTo(DeploymentStatus.DRAFT);
+    }
+
+    @Test
+    void shouldSubmitDraftForApproval() {
+        UUID requesterId = UUID.randomUUID();
+        UUID releaseId = UUID.randomUUID();
+        UUID environmentId = UUID.randomUUID();
+
+        DeploymentRequest deployment = DeploymentRequest.create(
+                requesterId,
+                releaseId,
+                environmentId
+        );
+
+        deployment.submit();
+
+        assertThat(deployment.getStatus())
+            .isEqualTo(DeploymentStatus.PENDING_APPROVAL);
+    }
+
+    @Test
+    void shouldNotSubmitDeploymentThatIsNotDraft() {
+        UUID requesterId = UUID.randomUUID();
+        UUID releaseId = UUID.randomUUID();
+        UUID environmentId = UUID.randomUUID();
+
+        DeploymentRequest deployment = DeploymentRequest.create(
+                requesterId,
+                releaseId,
+                environmentId
+        );
+
+        deployment.submit();
+
+        assertThatThrownBy(() -> deployment.submit())
+                .isInstanceOf(InvalidDeploymentTransitionException.class)
+                .hasMessage("Only draft deployments can be submitted");
     }
 }

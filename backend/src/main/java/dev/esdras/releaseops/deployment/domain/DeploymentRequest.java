@@ -1,5 +1,7 @@
 package dev.esdras.releaseops.deployment.domain;
 
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
+
 import java.util.UUID;
 
 public class DeploymentRequest {
@@ -7,7 +9,7 @@ public class DeploymentRequest {
     private final UUID requesterId;
     private final UUID releaseId;
     private final UUID environmentId;
-    private final DeploymentStatus status;
+    private DeploymentStatus status;
 
     private DeploymentRequest(
         UUID requesterId,
@@ -34,5 +36,14 @@ public class DeploymentRequest {
 
     public DeploymentStatus getStatus() {
         return status;
+    }
+
+    public void submit() throws InvalidDeploymentTransitionException {
+
+        if (status != DeploymentStatus.DRAFT) {
+            throw new InvalidDeploymentTransitionException("Only draft deployments can be submitted");
+        }
+
+        this.status = DeploymentStatus.PENDING_APPROVAL;
     }
 }
