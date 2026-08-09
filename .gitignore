@@ -1,0 +1,38 @@
+backend/HELP.md
+
+### Maven ###
+
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+### IntelliJ IDEA ###
+
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Environment and logs ###
+
+.env
+.env.*
+!.env.example
+*.log
+logs/
+
+### Operating system ###
+
+.DS_Store
+Thumbs.db
