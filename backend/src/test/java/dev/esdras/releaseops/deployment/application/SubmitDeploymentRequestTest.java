@@ -4,6 +4,7 @@ import dev.esdras.releaseops.deployment.domain.DeploymentRequest;
 import dev.esdras.releaseops.deployment.domain.DeploymentStatus;
 import dev.esdras.releaseops.deployment.domain.DeploymentRepository;
 import dev.esdras.releaseops.deployment.application.exception.DeploymentRequestNotFoundException;
+import dev.esdras.releaseops.deployment.domain.exception.InvalidDeploymentTransitionException;
 
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +72,23 @@ class SubmitDeploymentRequestTest {
         assertThatThrownBy(() -> useCase.execute(deploymentId))
                 .isInstanceOf(DeploymentRequestNotFoundException.class)
                 .hasMessage("Deployment request not found: " + deploymentId);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void shouldPropagateInvalidStateAndNotSave() {
+        UUID deploymentId = UUID.randomUUID();
+        DeploymentRequest deployment = DeploymentRequest.create(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "Release API", "Deploy the API release", "Restore the previous release", 1,
+                Instant.parse("2026-08-01T10:00:00Z")
+        );
+        deployment.submit(FIXED_INSTANT);
+        DeploymentRepository repository = mock(DeploymentRepository.class);
+        when(repository.findById(deploymentId)).thenReturn(Optional.of(deployment));
+
+        assertThatThrownBy(() -> new SubmitDeploymentRequest(repository, FIXED_CLOCK).execute(deploymentId))
+                .isInstanceOf(InvalidDeploymentTransitionException.class);
         verify(repository, never()).save(any());
     }
 }
