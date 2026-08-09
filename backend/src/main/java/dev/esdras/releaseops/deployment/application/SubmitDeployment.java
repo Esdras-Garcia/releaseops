@@ -2,6 +2,7 @@ package dev.esdras.releaseops.deployment.application;
 
 import dev.esdras.releaseops.deployment.domain.DeploymentRepository;
 import dev.esdras.releaseops.deployment.domain.DeploymentRequest;
+import dev.esdras.releaseops.deployment.application.exception.DeploymentNotFoundException;
 
 import java.util.UUID;
 
@@ -16,7 +17,9 @@ public class SubmitDeployment {
     public void execute(UUID deploymentId) {
         DeploymentRequest deployment = repository
                 .findById(deploymentId)
-                .orElseThrow();
+                .orElseThrow(() -> new DeploymentNotFoundException(
+                        "Deployment not found: " + deploymentId
+                ));
 
         deployment.submit();
 
