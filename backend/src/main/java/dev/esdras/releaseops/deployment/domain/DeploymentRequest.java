@@ -302,4 +302,68 @@ public class DeploymentRequest {
             );
         }
     }
+
+    public static DeploymentRequest restoreDraft(
+            UUID id,
+            UUID requesterId,
+            UUID releaseId,
+            UUID environmentId,
+            String title,
+            String description,
+            String rollbackPlan,
+            int requiredApprovals,
+            Instant createdAt
+    ) {
+        return new DeploymentRequest(
+                id,
+                requesterId,
+                releaseId,
+                environmentId,
+                title,
+                description,
+                rollbackPlan,
+                requiredApprovals,
+                createdAt
+        );
+    }
+
+    public static DeploymentRequest restore(
+            UUID id,
+            UUID requesterId,
+            UUID releaseId,
+            UUID environmentId,
+            String title,
+            String description,
+            String rollbackPlan,
+            int requiredApprovals,
+            Instant createdAt,
+            DeploymentStatus status,
+            List<ReviewRound> reviewRounds,
+            String cancellationReason,
+            Instant canceledAt
+    ) {
+        DeploymentRequest deployment = new DeploymentRequest(
+                id,
+                requesterId,
+                releaseId,
+                environmentId,
+                title,
+                description,
+                rollbackPlan,
+                requiredApprovals,
+                createdAt
+        );
+
+        deployment.status =
+                Objects.requireNonNull(status, "status must not be null");
+
+        deployment.reviewRounds.addAll(
+                List.copyOf(reviewRounds)
+        );
+
+        deployment.cancellationReason = cancellationReason;
+        deployment.canceledAt = canceledAt;
+
+        return deployment;
+    }
 }

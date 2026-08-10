@@ -17,6 +17,20 @@ public class ApprovalDecision {
         this.decidedAt = decidedAt;
     }
 
+    public static ApprovalDecision restore(
+            UUID reviewerId,
+            ApprovalDecisionType type,
+            String comment,
+            Instant decidedAt
+    ) {
+        return new ApprovalDecision(
+                reviewerId,
+                type,
+                comment,
+                decidedAt
+        );
+    }
+
     public UUID getReviewerId() {
         return reviewerId;
     }

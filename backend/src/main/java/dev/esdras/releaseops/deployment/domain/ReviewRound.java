@@ -41,4 +41,14 @@ public class ReviewRound {
                 .filter(decision -> decision.getType() == ApprovalDecisionType.APPROVED)
                 .count();
     }
+
+    public static ReviewRound restore(
+            int roundNumber,
+            Instant submittedAt,
+            List<ApprovalDecision> decisions
+    ) {
+        ReviewRound round = new ReviewRound(roundNumber, submittedAt);
+        round.decisions.addAll(List.copyOf(decisions));
+        return round;
+    }
 }
