@@ -119,6 +119,34 @@ public class DeploymentRequestEntity {
         return entity;
     }
 
+    void updateFromDomain(DeploymentRequest deployment) {
+        this.requesterId = deployment.getRequesterId();
+        this.releaseId = deployment.getReleaseId();
+        this.environmentId = deployment.getEnvironmentId();
+        this.title = deployment.getTitle();
+        this.description = deployment.getDescription();
+        this.rollbackPlan = deployment.getRollbackPlan();
+        this.requiredApprovals = deployment.getRequiredApprovals();
+        this.status = deployment.getStatus();
+        this.createdAt = deployment.getCreatedAt();
+        this.cancellationReason = deployment.getCancellationReason();
+        this.canceledAt = deployment.getCanceledAt();
+
+        List<ReviewRound> domainRounds = deployment.getReviewRounds();
+        reviewRounds.removeIf(entity -> domainRounds.stream()
+                .noneMatch(round -> round.getRoundNumber() == entity.getRoundNumber()));
+
+        for (ReviewRound domainRound : domainRounds) {
+            reviewRounds.stream()
+                    .filter(entity -> entity.getRoundNumber() == domainRound.getRoundNumber())
+                    .findFirst()
+                    .ifPresentOrElse(
+                            entity -> entity.updateFromDomain(domainRound),
+                            () -> reviewRounds.add(ReviewRoundEntity.fromDomain(domainRound, this))
+                    );
+        }
+    }
+
     public DeploymentRequest toDomain() {
         List<ReviewRound> restoredRounds = reviewRounds.stream()
                 .map(ReviewRoundEntity::toDomain)

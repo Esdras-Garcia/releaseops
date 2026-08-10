@@ -72,6 +72,27 @@ public class ReviewRoundEntity {
         return entity;
     }
 
+    int getRoundNumber() {
+        return roundNumber;
+    }
+
+    void updateFromDomain(ReviewRound round) {
+        this.submittedAt = round.getSubmittedAt();
+        List<ApprovalDecision> domainDecisions = round.getDecisions();
+        decisions.removeIf(entity -> domainDecisions.stream()
+                .noneMatch(decision -> decision.getReviewerId().equals(entity.getReviewerId())));
+
+        for (ApprovalDecision domainDecision : domainDecisions) {
+            decisions.stream()
+                    .filter(entity -> entity.getReviewerId().equals(domainDecision.getReviewerId()))
+                    .findFirst()
+                    .ifPresentOrElse(
+                            entity -> entity.updateFromDomain(domainDecision),
+                            () -> decisions.add(ApprovalDecisionEntity.fromDomain(domainDecision, this))
+                    );
+        }
+    }
+
     public ReviewRound toDomain() {
         List<ApprovalDecision> restoredDecisions =
                 decisions.stream()

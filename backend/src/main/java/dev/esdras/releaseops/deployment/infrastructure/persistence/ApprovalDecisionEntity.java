@@ -72,6 +72,16 @@ public class ApprovalDecisionEntity {
         );
     }
 
+    UUID getReviewerId() {
+        return reviewerId;
+    }
+
+    void updateFromDomain(ApprovalDecision decision) {
+        this.type = decision.getType();
+        this.comment = decision.getComment();
+        this.decidedAt = decision.getDecidedAt();
+    }
+
     public ApprovalDecision toDomain() {
         return ApprovalDecision.restore(
                 reviewerId,

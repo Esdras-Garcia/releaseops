@@ -30,9 +30,10 @@ public class JpaDeploymentRepository implements DeploymentRepository {
     @Override
     @Transactional
     public void save(DeploymentRequest deployment) {
-        DeploymentRequestEntity entity =
-                DeploymentRequestEntity.fromDomain(deployment);
-
-        repository.save(entity);
+        repository.findById(deployment.getId())
+                .ifPresentOrElse(
+                        entity -> entity.updateFromDomain(deployment),
+                        () -> repository.save(DeploymentRequestEntity.fromDomain(deployment))
+                );
     }
 }
